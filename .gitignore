@@ -1,0 +1,6 @@
+# Virtual environments
+venv/
+
+# macOS
+DS_Store
+__pycache__
