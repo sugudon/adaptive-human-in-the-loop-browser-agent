@@ -657,4 +657,4 @@ The goal is:
 
 ## License
 
-No license has been granted for this project.
+No license has been granted for this project. All rights are reserved by the copyright holder. You may view the source code for reference, but permission is required to copy, modify, distribute, or reuse the code.
