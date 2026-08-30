@@ -657,4 +657,4 @@ The goal is:
 
 ## License
 
-Add your preferred license before publishing this project publicly.
+No license has been granted for this project.
