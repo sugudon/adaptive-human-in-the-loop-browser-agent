@@ -2,7 +2,7 @@ import json
 import os
 import re
 import time
-import requests
+import requests # type: ignore
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2:2b")
