@@ -17,9 +17,29 @@ SUPPORTED_ACTIONS = {
     "back", "scroll", "select", "extract_text", "done",
 }
 
+# Ollama structured-output schema: the "format" field below constrains the
+# decoder itself (via grammar-based sampling) so the model CANNOT emit
+# malformed JSON, an unknown field, or an action name outside
+# SUPPORTED_ACTIONS. This is stronger than the old format:"json", which only
+# asked for "some valid JSON" and left the model free to invent fields or
+# action names — this makes those specific failure modes structurally
+# impossible regardless of model size. It does not fix content mistakes
+# (e.g. picking the wrong index) — only shape/vocabulary.
+ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": sorted(SUPPORTED_ACTIONS)},
+        "target": {"type": "string"},
+        "value": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["action", "target", "value", "reason"],
+}
 
-def ask_gemma(prompt: str) -> str:
+
+def ask_gemma(prompt: str, format_schema=ACTION_SCHEMA) -> str:
     last_exc = None
+    current_format = format_schema
     for attempt in range(1, OLLAMA_RETRIES + 2):
         try:
             response = requests.post(
@@ -28,13 +48,24 @@ def ask_gemma(prompt: str) -> str:
                     "model": OLLAMA_MODEL,
                     "prompt": prompt,
                     "stream": False,
-                    "format": "json",
+                    "format": current_format,
                     "options": {"temperature": 0.1},
                 },
                 timeout=OLLAMA_TIMEOUT,
             )
             response.raise_for_status()
             return response.json().get("response", "")
+        except requests.HTTPError as exc:
+            # Older Ollama servers reject a schema object for "format" (they
+            # only understand the plain "json" string). Fall back once and
+            # keep going instead of hard-failing the whole task over a
+            # version mismatch.
+            if isinstance(current_format, dict) and exc.response is not None and exc.response.status_code == 400:
+                print("⚠️ Ollama rejected schema-based format (older server?) — falling back to format:'json'.")
+                current_format = "json"
+                continue
+            last_exc = exc
+            break
         except (requests.ConnectionError, requests.Timeout) as exc:
             last_exc = exc
             if attempt <= OLLAMA_RETRIES:

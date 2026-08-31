@@ -214,6 +214,7 @@ Browser observation:
                         await self.page.wait_for_timeout(1000)
                         return {"status": "success", "action": "press", "converted_from": "click", "key": "Enter"}
 
+                await self._assert_reachable(locator, target)
                 await locator.click(timeout=10000)
                 await self.page.wait_for_timeout(500)
 
@@ -340,6 +341,29 @@ Browser observation:
     # SMART LOCATOR
     # =========================================================
 
+    async def _assert_reachable(self, locator, target: str):
+        """Fail fast (well under a second) if an element is positioned
+        somewhere it can never actually be scrolled into view — instead of
+        letting Playwright's click retry loop burn its full ~10s timeout
+        discovering the same thing. This mainly catches off-screen
+        accessibility-only elements that pass is_visible() but aren't truly
+        reachable (get_page_snapshot filters most of these out already;
+        this is a defense-in-depth check for anything that slips through
+        or changes between snapshot and execution)."""
+        try:
+            viewport = self.page.viewport_size or {"width": 1440, "height": 900}
+            box = await locator.bounding_box(timeout=2000)
+        except Exception:
+            return  # let the real click attempt surface its own error
+        if box is None:
+            return
+        if box["x"] < -200 or box["y"] < -200 or box["x"] > viewport["width"] + 2000:
+            raise RuntimeError(
+                f"Element for target '{target}' is positioned off-screen "
+                f"(x={box['x']}, y={box['y']}) and cannot actually be clicked "
+                f"— it is likely a hidden accessibility-only element."
+            )
+
     async def _get_visible_locator(self, target: str):
         if not target:
             raise ValueError("Target selector is required.")
@@ -415,12 +439,37 @@ Page title:
 
         url = self.page.url
         title = await self.page.title()
+        viewport = self.page.viewport_size or {"width": 1440, "height": 900}
         elements = await self.page.locator("input, button, a, select, textarea").all()
 
         snapshot = []
         for index, element in enumerate(elements[:100]):
             try:
                 if not await element.is_visible():
+                    continue
+
+                # tabindex="-1" marks an element as not meant for direct
+                # user interaction (often a hidden accessibility helper,
+                # like Amazon's off-screen keyboard-shortcut menu items).
+                # is_visible() alone doesn't catch these — they pass CSS
+                # visibility checks but are positioned off-canvas and can
+                # never actually be scrolled into view or clicked.
+                tabindex = await element.get_attribute("tabindex")
+                if tabindex == "-1":
+                    continue
+
+                box = await element.bounding_box()
+                if box is None:
+                    continue
+                # A large negative/oversized offset is the standard
+                # "visually hidden but present for screen readers" trick.
+                # Real, clickable page content stays within a reasonable
+                # margin of the actual viewport.
+                if (
+                    box["width"] <= 0 or box["height"] <= 0
+                    or box["x"] < -200 or box["y"] < -200
+                    or box["x"] > viewport["width"] + 2000
+                ):
                     continue
 
                 tag = await element.evaluate("(el) => el.tagName.toLowerCase()")

@@ -1,6 +1,10 @@
 # Virtual environments
 venv/
+.vscode
+.venv
+.claude
+.agents
 
 # macOS
-DS_Store
+.DS_Store
 __pycache__
